@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Media Tracker (Versión 8.0)</title>
+  <title>Media Tracker (Versión 9.0)</title>
   <style>
     body {
       background-color: #f0f0f0;
@@ -151,7 +151,7 @@
     // Función para verificar si la sesión ha expirado
     const hasSessionExpired = () => {
       const lastActivity = localStorage.getItem('lastActivity');
-      if (!lastActivity) return true; // Si no hay última actividad, la sesión ha expirado
+      if (!lastActivity) return true;
       const now = Date.now();
       const timeSinceLastActivity = now - parseInt(lastActivity, 10);
       console.log('Tiempo desde la última actividad:', timeSinceLastActivity / 1000, 'segundos');
@@ -164,7 +164,6 @@
       const [view, setView] = useState('login');
       const [error, setError] = useState('');
 
-      // Restaurar sesión al iniciar la aplicación
       useEffect(() => {
         const restoreSession = async () => {
           console.log('Intentando restaurar sesión...');
@@ -194,17 +193,14 @@
               localStorage.removeItem('userId');
               localStorage.removeItem('lastActivity');
             }
-          } else {
-            console.log('No se encontró userId en localStorage');
           }
         };
         restoreSession();
       }, []);
 
-      // Registrar eventos de actividad del usuario (clics, teclas, etc.)
       useEffect(() => {
         const handleActivity = () => {
-          if (user) { // Solo actualizar si hay un usuario logueado
+          if (user) {
             updateLastActivity();
           }
         };
@@ -237,7 +233,6 @@
       return <Dashboard user={user} setUser={setUser} setError={setError} />;
     }
 
-    // Componente de Login
     function Login({ setUser, setView, error, setError }) {
       const [email, setEmail] = useState('');
       const [password, setPassword] = useState('');
@@ -296,7 +291,6 @@
       );
     }
 
-    // Componente de Registro
     function Register({ setView, error, setError }) {
       const [name, setName] = useState('');
       const [email, setEmail] = useState('');
@@ -369,7 +363,6 @@
       );
     }
 
-    // Componente de Recuperación de Contraseña
     function RecoverPassword({ setView }) {
       const [email, setEmail] = useState('');
       const [message, setMessage] = useState('');
@@ -415,13 +408,13 @@
       );
     }
 
-    // Componente de Configuración
     function SettingsModal({ user, setUser, setError, onClose }) {
       const [name, setName] = useState(user.name);
       const [email, setEmail] = useState(user.email);
       const [password, setPassword] = useState(user.password);
       const [formError, setFormError] = useState('');
       const [successMessage, setSuccessMessage] = useState('');
+      const [importMessage, setImportMessage] = useState('');
 
       const handleUpdateUser = async (e) => {
         e.preventDefault();
@@ -582,6 +575,59 @@ VALUES (${escapeSQL(e.id)}, ${escapeSQL(e.seasonId)}, ${e.episodeNumber}, ${e.du
         }
       };
 
+      const importFromCSV = async (event, tableName) => {
+        const file = event.target.files[0];
+        if (!file) {
+          setImportMessage('Por favor, selecciona un archivo CSV.');
+          return;
+        }
+
+        try {
+          const text = await file.text();
+          const { data } = Papa.parse(text, { header: true });
+
+          if (!data || data.length === 0) {
+            setImportMessage(`No se encontraron datos válidos en el archivo para ${tableName}.`);
+            return;
+          }
+
+          const table = db[tableName];
+          await table.clear(); // Limpiar la tabla antes de importar
+
+          if (tableName === 'users') {
+            await table.bulkAdd(data);
+          } else if (tableName === 'media') {
+            await table.bulkAdd(data.map(item => ({
+              ...item,
+              duration: parseInt(item.duration) || 0,
+              rating: item.rating ? parseInt(item.rating) : null
+            })));
+          } else if (tableName === 'seasons') {
+            await table.bulkAdd(data.map(item => ({
+              ...item,
+              seasonNumber: parseInt(item.seasonNumber),
+              episodeCount: parseInt(item.episodeCount),
+              totalDuration: parseInt(item.totalDuration)
+            })));
+          } else if (tableName === 'episodes') {
+            await table.bulkAdd(data.map(item => ({
+              ...item,
+              episodeNumber: parseInt(item.episodeNumber),
+              duration: parseInt(item.duration),
+              watched: item.watched === 'true' || item.watched === 1
+            })));
+          } else if (tableName === 'platforms') {
+            await table.bulkAdd(data);
+          }
+
+          setImportMessage(`Datos de ${tableName} importados exitosamente. Por favor, recarga la página.`);
+          updateLastActivity();
+        } catch (err) {
+          setImportMessage(`Error al importar ${tableName}: ${err.message}`);
+          console.error(`Error al importar ${tableName}:`, err);
+        }
+      };
+
       return (
         <div class="modal">
           <div class="modal-content">
@@ -627,12 +673,36 @@ VALUES (${escapeSQL(e.id)}, ${escapeSQL(e.seasonId)}, ${e.episodeNumber}, ${e.du
               <button onClick={exportToCSV} class="button button-green">Exportar a CSV</button>
               <button onClick={exportToSQL} class="button button-green" style={{ marginLeft: '10px' }}>Exportar a MySQL</button>
             </div>
+
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 'bold', margin: '20px 0 15px' }}>Importar Datos</h3>
+            {importMessage && <p class={importMessage.includes('Error') ? 'error' : 'success'}>{importMessage}</p>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div class="form-group">
+                <label>Importar Usuarios (users.csv)</label>
+                <input type="file" accept=".csv" onChange={(e) => importFromCSV(e, 'users')} />
+              </div>
+              <div class="form-group">
+                <label>Importar Plataformas (platforms.csv)</label>
+                <input type="file" accept=".csv" onChange={(e) => importFromCSV(e, 'platforms')} />
+              </div>
+              <div class="form-group">
+                <label>Importar Medios (media.csv)</label>
+                <input type="file" accept=".csv" onChange={(e) => importFromCSV(e, 'media')} />
+              </div>
+              <div class="form-group">
+                <label>Importar Temporadas (seasons.csv)</label>
+                <input type="file" accept=".csv" onChange={(e) => importFromCSV(e, 'seasons')} />
+              </div>
+              <div class="form-group">
+                <label>Importar Episodios (episodes.csv)</label>
+                <input type="file" accept=".csv" onChange={(e) => importFromCSV(e, 'episodes')} />
+              </div>
+            </div>
           </div>
         </div>
       );
     }
 
-    // Componente del Dashboard
     function Dashboard({ user, setUser, setError }) {
       const [media, setMedia] = useState([]);
       const [filters, setFilters] = useState({
@@ -671,7 +741,6 @@ VALUES (${escapeSQL(e.id)}, ${escapeSQL(e.seasonId)}, ${e.episodeNumber}, ${e.du
         setUser(null);
       };
 
-      // Verificar expiración de sesión antes de realizar acciones
       const checkSessionBeforeAction = (action) => {
         if (hasSessionExpired()) {
           console.log('Sesión expirada al intentar realizar acción');
@@ -740,7 +809,6 @@ VALUES (${escapeSQL(e.id)}, ${escapeSQL(e.seasonId)}, ${e.episodeNumber}, ${e.du
       );
     }
 
-    // Componente para agregar/editar películas/series
     function MediaForm({ user, setMedia, setError, editingMedia, setEditingMedia, setShowAddForm }) {
       const isEditing = !!editingMedia;
       const [title, setTitle] = useState(isEditing ? editingMedia.title : '');
@@ -1171,7 +1239,6 @@ VALUES (${escapeSQL(e.id)}, ${escapeSQL(e.seasonId)}, ${e.episodeNumber}, ${e.du
       );
     }
 
-    // Componente de Filtros
     function Filters({ filters, setFilters, media }) {
       const [availablePlatforms, setAvailablePlatforms] = useState([]);
 
@@ -1241,7 +1308,6 @@ VALUES (${escapeSQL(e.id)}, ${escapeSQL(e.seasonId)}, ${e.episodeNumber}, ${e.du
       );
     }
 
-    // Componente de Lista de Medios
     function MediaList({ media, filters, setMedia, setError, setEditingMedia, setShowAddForm }) {
       const [mediaWithTime, setMediaWithTime] = useState([]);
 
@@ -1440,7 +1506,6 @@ VALUES (${escapeSQL(e.id)}, ${escapeSQL(e.seasonId)}, ${e.episodeNumber}, ${e.du
       );
     }
 
-    // Componente de Detalles de Series
     function SeriesDetails({ mediaId, handleEpisodeToggle }) {
       const [seasons, setSeasons] = useState([]);
 
@@ -1488,7 +1553,6 @@ VALUES (${escapeSQL(e.id)}, ${escapeSQL(e.seasonId)}, ${e.episodeNumber}, ${e.du
       );
     }
 
-    // Renderizar la aplicación
     try {
       console.log('Renderizando aplicación...');
       ReactDOM.render(<App />, document.getElementById('root'));
