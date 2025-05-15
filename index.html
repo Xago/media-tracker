@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Media Tracker (Versión 9.0)</title>
+  <title>Media Tracker (Versión 10.0)</title>
   <style>
     body {
       background-color: #f0f0f0;
@@ -108,14 +108,15 @@
     let db;
     try {
       db = new Dexie('MediaTrackerDB');
-      db.version(2).stores({
+      db.version(3).stores({
         users: 'id,name,email,password',
         media: 'id,userId,title,type,platform,genre,duration,status,rating',
         seasons: 'id,mediaId,seasonNumber,episodeCount,totalDuration',
         episodes: 'id,seasonId,episodeNumber,duration,watched',
-        platforms: 'name'
+        platforms: 'name',
+        resetTokens: 'token,email,expires' // Nueva tabla para almacenar tokens de recuperación
       }).upgrade(async (trans) => {
-        console.log('Ejecutando migración de datos para la versión 2...');
+        console.log('Ejecutando migración de datos para la versión 3...');
         const media = await trans.table('media').toArray();
         const existingPlatforms = [...new Set(media.map(m => m.platform))].filter(p => p);
         const defaultPlatforms = ['Netflix', 'Prime', 'Disney', 'Paramount'];
@@ -130,6 +131,16 @@
 
     // Generar ID único sin uuid
     const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
+
+    // Generar un token de recuperación
+    const generateResetToken = () => {
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      let token = '';
+      for (let i = 0; i < 32; i++) {
+        token += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return token;
+    };
 
     // Lista de géneros
     const genres = [
@@ -165,37 +176,45 @@
       const [error, setError] = useState('');
 
       useEffect(() => {
-        const restoreSession = async () => {
-          console.log('Intentando restaurar sesión...');
-          const userId = localStorage.getItem('userId');
-          if (userId) {
-            try {
-              const storedUser = await db.users.get(userId);
-              if (storedUser) {
-                if (hasSessionExpired()) {
-                  console.log('Sesión expirada, limpiando datos...');
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token');
+        const email = urlParams.get('email');
+
+        if (token && email) {
+          setView('resetPassword');
+        } else {
+          const restoreSession = async () => {
+            console.log('Intentando restaurar sesión...');
+            const userId = localStorage.getItem('userId');
+            if (userId) {
+              try {
+                const storedUser = await db.users.get(userId);
+                if (storedUser) {
+                  if (hasSessionExpired()) {
+                    console.log('Sesión expirada, limpiando datos...');
+                    localStorage.removeItem('userId');
+                    localStorage.removeItem('lastActivity');
+                    setError('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.');
+                  } else {
+                    setUser(storedUser);
+                    setView('dashboard');
+                    updateLastActivity();
+                    console.log('Sesión restaurada para usuario:', storedUser);
+                  }
+                } else {
+                  console.log('No se encontró usuario con ID:', userId);
                   localStorage.removeItem('userId');
                   localStorage.removeItem('lastActivity');
-                  setError('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.');
-                } else {
-                  setUser(storedUser);
-                  setView('dashboard');
-                  updateLastActivity();
-                  console.log('Sesión restaurada para usuario:', storedUser);
                 }
-              } else {
-                console.log('No se encontró usuario con ID:', userId);
+              } catch (err) {
+                console.error('Error al restaurar sesión:', err);
                 localStorage.removeItem('userId');
                 localStorage.removeItem('lastActivity');
               }
-            } catch (err) {
-              console.error('Error al restaurar sesión:', err);
-              localStorage.removeItem('userId');
-              localStorage.removeItem('lastActivity');
             }
-          }
-        };
-        restoreSession();
+          };
+          restoreSession();
+        }
       }, []);
 
       useEffect(() => {
@@ -227,6 +246,8 @@
           return <Register setView={setView} error={error} setError={setError} />;
         } else if (view === 'recover') {
           return <RecoverPassword setView={setView} />;
+        } else if (view === 'resetPassword') {
+          return <ResetPassword setView={setView} setError={setError} />;
         }
       }
 
@@ -372,12 +393,39 @@
         console.log('Intentando recuperar contraseña para:', email);
         try {
           const user = await db.users.where({ email }).first();
-          if (user) {
-            setMessage('Se ha simulado el envío de un enlace de recuperación a tu correo.');
-            console.log('Recuperación simulada para:', email);
-          } else {
+          if (!user) {
             setMessage('Correo no encontrado.');
             console.log('Correo no encontrado:', email);
+            return;
+          }
+
+          // Generar un token de recuperación
+          const resetToken = generateResetToken();
+          const expires = Date.now() + 60 * 60 * 1000; // Expira en 1 hora
+
+          // Almacenar el token en IndexedDB
+          await db.resetTokens.add({
+            token: resetToken,
+            email,
+            expires
+          });
+
+          // Enviar el correo de recuperación usando Netlify Functions
+          const response = await fetch('/.netlify/functions/send-recovery-email', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ email, resetToken }),
+          });
+
+          const result = await response.json();
+          if (response.ok) {
+            setMessage('Se ha enviado un enlace de recuperación a tu correo. Revisa tu bandeja de entrada (y la carpeta de spam).');
+            console.log('Correo de recuperación enviado:', email);
+          } else {
+            setMessage('Error al enviar el correo de recuperación: ' + result.error);
+            console.error('Error al enviar correo:', result.error);
           }
         } catch (err) {
           setMessage('Error: ' + err.message);
@@ -403,6 +451,113 @@
           </form>
           <p style={{ marginTop: '20px', textAlign: 'center' }}>
             <a href="#" onClick={() => setView('login')} style={{ color: '#007bff' }}>Volver al inicio de sesión</a>
+          </p>
+        </div>
+      );
+    }
+
+    function ResetPassword({ setView, setError }) {
+      const [password, setPassword] = useState('');
+      const [confirmPassword, setConfirmPassword] = useState('');
+      const [message, setMessage] = useState('');
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const token = urlParams.get('token');
+      const email = urlParams.get('email');
+
+      useEffect(() => {
+        const validateToken = async () => {
+          try {
+            const resetToken = await db.resetTokens.where({ token, email }).first();
+            if (!resetToken) {
+              setMessage('Enlace de recuperación inválido o expirado.');
+              console.log('Token inválido o no encontrado:', token);
+              return;
+            }
+
+            const now = Date.now();
+            if (now > resetToken.expires) {
+              setMessage('El enlace de recuperación ha expirado.');
+              console.log('Token expirado:', token);
+              await db.resetTokens.delete(token);
+            }
+          } catch (err) {
+            setMessage('Error al validar el enlace: ' + err.message);
+            console.error('Error al validar token:', err);
+          }
+        };
+        validateToken();
+      }, [token, email]);
+
+      const handleResetPassword = async (e) => {
+        e.preventDefault();
+        console.log('Intentando restablecer contraseña para:', email);
+        try {
+          if (password !== confirmPassword) {
+            setMessage('Las contraseñas no coinciden.');
+            console.log('Contraseñas no coinciden');
+            return;
+          }
+
+          const resetToken = await db.resetTokens.where({ token, email }).first();
+          if (!resetToken || Date.now() > resetToken.expires) {
+            setMessage('Enlace de recuperación inválido o expirado.');
+            console.log('Token inválido o expirado durante restablecimiento:', token);
+            return;
+          }
+
+          const user = await db.users.where({ email }).first();
+          if (!user) {
+            setMessage('Usuario no encontrado.');
+            console.log('Usuario no encontrado:', email);
+            return;
+          }
+
+          await db.users.update(user.id, { password });
+          await db.resetTokens.delete(token);
+          setMessage('Contraseña restablecida exitosamente. Por favor, inicia sesión con tu nueva contraseña.');
+          console.log('Contraseña restablecida para:', email);
+
+          setTimeout(() => {
+            window.history.replaceState(null, '', '/');
+            setView('login');
+          }, 3000);
+        } catch (err) {
+          setMessage('Error al restablecer contraseña: ' + err.message);
+          console.error('Error al restablecer contraseña:', err);
+        }
+      };
+
+      return (
+        <div class="card" style={{ maxWidth: '400px', margin: '40px auto' }}>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '20px' }}>Restablecer Contraseña</h2>
+          {message && <p class={message.includes('Error') || message.includes('inválido') || message.includes('expirado') || message.includes('coinciden') ? 'error' : 'success'}>{message}</p>}
+          <form onSubmit={handleResetPassword} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            <div class="form-group">
+              <label>Nueva Contraseña</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label>Confirmar Contraseña</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+              />
+            </div>
+            <button type="submit" class="button button-blue">Restablecer Contraseña</button>
+          </form>
+          <p style={{ marginTop: '20px', textAlign: 'center' }}>
+            <a href="#" onClick={() => {
+              window.history.replaceState(null, '', '/');
+              setView('login');
+            }} style={{ color: '#007bff' }}>Volver al inicio de sesión</a>
           </p>
         </div>
       );
@@ -1513,54 +1668,4 @@ VALUES (${escapeSQL(e.id)}, ${escapeSQL(e.seasonId)}, ${e.episodeNumber}, ${e.du
         const fetchSeasons = async () => {
           console.log('Cargando temporadas para medio:', mediaId);
           try {
-            const seasons = await db.seasons.where({ mediaId }).toArray();
-            const seasonsWithEpisodes = await Promise.all(
-              seasons.map(async s => {
-                const episodes = await db.episodes.where({ seasonId: s.id }).toArray();
-                return { ...s, episodes, completed: episodes.every(e => e.watched) };
-              })
-            );
-            setSeasons(seasonsWithEpisodes);
-            console.log('Temporadas cargadas:', seasonsWithEpisodes);
-          } catch (err) {
-            console.error('Error al cargar temporadas:', err);
-          }
-        };
-        fetchSeasons();
-      }, [mediaId]);
-
-      return (
-        <div style={{ marginTop: '20px' }}>
-          <h4 style={{ fontWeight: 'bold' }}>Temporadas</h4>
-          {seasons.length > 0 ? seasons.map(s => (
-            <div key={s.id} style={{ marginTop: '10px' }}>
-              <p>Temporada {s.seasonNumber} {s.completed ? '(Completada)' : ''}</p>
-              {s.episodes.map(e => (
-                <div key={e.id} class="flex" style={{ marginTop: '5px' }}>
-                  <input
-                    type="checkbox"
-                    checked={e.watched}
-                    onChange={() => handleEpisodeToggle(e.id, !e.watched)}
-                  />
-                  <span>Episodio {e.episodeNumber} ({e.duration} min)</span>
-                </div>
-              ))}
-            </div>
-          )) : (
-            <p style={{ color: '#666' }}>No hay temporadas registradas.</p>
-          )}
-        </div>
-      );
-    }
-
-    try {
-      console.log('Renderizando aplicación...');
-      ReactDOM.render(<App />, document.getElementById('root'));
-      console.log('Aplicación renderizada exitosamente');
-    } catch (err) {
-      console.error('Error al renderizar la aplicación:', err);
-      document.getElementById('root').innerHTML = '<p class="error" style="padding: 20px;">Error al cargar la aplicación. Por favor, revisa la consola del navegador para más detalles.</p>';
-    }
-  </script>
-</body>
-</html>
+            const seasons = await db.seasons.where({ mediaId }).toArray
