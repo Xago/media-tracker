@@ -19,21 +19,35 @@
 </head>
 <body>
   <div id="root"></div>
+  <div id="loading" style="text-align: center; padding: 20px;">Cargando...</div>
   <script src="libs/react.min.js"></script>
   <script src="libs/react-dom.min.js"></script>
   <script src="libs/babel.min.js"></script>
   <script src="libs/dexie.min.js"></script>
   <script src="libs/papaparse.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script type="text/babel">
-    window.onload = function() {
-      const { useState, useEffect } = React;
+    // Ocultar el mensaje de carga inicialmente hasta que sepamos si hay un error
+    document.getElementById('loading').style.display = 'block';
 
-      // Verificar que Supabase esté definido
-      if (typeof Supabase === 'undefined') {
-        console.error('Error: Supabase no está definido. Asegúrate de que el script de Supabase se haya cargado correctamente.');
-        return;
-      }
+    // Función para esperar a que Supabase esté disponible
+    function waitForSupabase(callback, timeout = 10000) {
+      const startTime = Date.now();
+      const interval = setInterval(() => {
+        if (typeof Supabase !== 'undefined') {
+          clearInterval(interval);
+          document.getElementById('loading').style.display = 'none';
+          callback();
+        } else if (Date.now() - startTime > timeout) {
+          clearInterval(interval);
+          document.getElementById('loading').innerHTML = '<p class="error">Error: No se pudo cargar Supabase. Por favor, verifica tu conexión a internet o desactiva cualquier bloqueador de anuncios y recarga la página.</p>';
+          console.error('Error: Supabase no se cargó después de 10 segundos.');
+        }
+      }, 100);
+    }
+
+    waitForSupabase(() => {
+      const { useState, useEffect } = React;
 
       // Inicializar Supabase con credenciales hardcodeadas
       const supabase = Supabase.createClient('https://dgesdafhrxbnapzdgoiy.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRnZXNkYWZocnhibmFwemRnb2l5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc0MjQ0NzUsImV4cCI6MjA2MzAwMDQ3NX0.S0s4DVfcjHgtOwx80NObSaa1zOLo9jrhbffAWCsLFvE');
@@ -840,7 +854,7 @@
       }
 
       ReactDOM.render(<App />, document.getElementById('root'));
-    };
+    });
   </script>
 </body>
 </html>
