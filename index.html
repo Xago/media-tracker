@@ -1460,55 +1460,28 @@ VALUES (${escapeSQL(e.id)}, ${escapeSQL(e.seasonId)}, ${e.episodeNumber}, ${e.du
     }
 
     function SeriesDetails({ mediaId, handleEpisodeToggle }) {
-  const [seasons, setSeasons] = useState([]);
+      const [seasons, setSeasons] = useState([]);
 
-  useEffect(() => {
-    const fetchSeasons = async () => {
-      console.log('Cargando temporadas para medio:', mediaId);
-      try {
-        const seasons = await db.seasons.where({ mediaId }).toArray();
-        console.log('Temporadas encontradas:', seasons);
-        const seasonsWithEpisodes = await Promise.all(
-          seasons.map(async s => {
-            const episodes = await db.episodes.where({ seasonId: s.id }).toArray();
-            console.log(`Episodios para temporada ${s.id}:`, episodes);
-            return { ...s, episodes, completed: episodes.every(e => e.watched) };
-          })
-        );
-        setSeasons(seasonsWithEpisodes);
-        console.log('Temporadas cargadas con episodios:', seasonsWithEpisodes);
-      } catch (err) {
-        console.error('Error al cargar temporadas:', err);
-      }
-    };
-    fetchSeasons();
-  }, [mediaId]);
+      useEffect(() => {
+        const fetchSeasons = async () => {
+          console.log('Cargando temporadas para medio:', mediaId);
+          try {
+            const seasons = await db.seasons.where({ mediaId }).toArray();
+            const seasonsWithEpisodes = await Promise.all(
+              seasons.map(async s => {
+                const episodes = await db.episodes.where({ seasonId: s.id }).toArray();
+                return { ...s, episodes, completed: episodes.every(e => e.watched) };
+              })
+            );
+            setSeasons(seasonsWithEpisodes);
+            console.log('Temporadas cargadas:', seasonsWithEpisodes);
+          } catch (err) {
+            console.error('Error al cargar temporadas:', err);
+          }
+        };
+        fetchSeasons();
+      }, [mediaId]);
 
-  console.log('Renderizando SeriesDetails - seasons:', seasons);
-
-  return (
-    <div style={{ marginTop: '20px' }}>
-      <h4 style={{ fontWeight: 'bold' }}>Temporadas</h4>
-      {seasons.length > 0 ? seasons.map(s => (
-        <div key={s.id} style={{ marginTop: '10px' }}>
-          <p>Temporada {s.seasonNumber} {s.completed ? '(Completada)' : ''}</p>
-          {s.episodes.map(e => (
-            <div key={e.id} class="flex" style={{ marginTop: '5px' }}>
-              <input
-                type="checkbox"
-                checked={e.watched}
-                onChange={() => handleEpisodeToggle(e.id, !e.watched)}
-              />
-              <span>Episodio {e.episodeNumber} ({e.duration} min)</span>
-            </div>
-          ))}
-        </div>
-      )) : (
-        <p style={{ color: '#666' }}>No hay temporadas registradas.</p>
-      )}
-    </div>
-  );
-}
       return (
         <div style={{ marginTop: '20px' }}>
           <h4 style={{ fontWeight: 'bold' }}>Temporadas</h4>
