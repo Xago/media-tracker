@@ -25,7 +25,7 @@
   <script src="libs/babel.min.js"></script>
   <script src="libs/dexie.min.js"></script>
   <script src="libs/papaparse.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script type="text/babel">
     // Ocultar el mensaje de carga inicialmente hasta que sepamos si hay un error
     document.getElementById('loading').style.display = 'block';
@@ -723,7 +723,7 @@
           if (hasSessionExpired()) {
             localStorage.removeItem('userId');
             localStorage.removeItem('lastActivity');
-            alert('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.');
+            alert('Tu sesión ha expirada. Por favor, inicia sesión nuevamente.');
             return;
           }
 
