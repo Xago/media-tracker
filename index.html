@@ -28,8 +28,8 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
-    // Inicializar Supabase
-    const supabase = Supabase.createClient('https://dgesdafhrxbnapzdgoiy.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...');
+    // Inicializar Supabase con credenciales hardcodeadas
+    const supabase = Supabase.createClient('https://dgesdafhrxbnapzdgoiy.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRnZXNkYWZocnhibmFwemRnb2l5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc0MjQ0NzUsImV4cCI6MjA2MzAwMDQ3NX0.S0s4DVfcjHgtOwx80NObSaa1zOLo9jrhbffAWCsLFvE');
 
     const db = new Dexie('MediaTrackerDB');
     db.version(2).stores({
